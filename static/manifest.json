@@ -1,0 +1,7 @@
+{
+    "name": "多Agent协作研究助手",
+    "short_name": "研究助手",
+    "start_url": "/",
+    "display": "standalone",
+    "icons": []
+}

@@ -1,0 +1,961 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>多Agent协作研究助手</title>
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🔬</text></svg>">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdn.bootcdn.net/ajax/libs/font-awesome/4.7.0/css/font-awesome.min.css">
+    <!-- marked.js 多 CDN 兜底 -->
+    <script>
+        function _loadScript(src, fallback) {
+            return new Promise(function(resolve, reject) {
+                var s = document.createElement('script');
+                s.src = src;
+                s.onload = resolve;
+                s.onerror = function() {
+                    if (fallback) {
+                        console.warn('[CDN] 主源失败，尝试备用: ' + fallback);
+                        var s2 = document.createElement('script');
+                        s2.src = fallback;
+                        s2.onload = resolve;
+                        s2.onerror = reject;
+                        document.head.appendChild(s2);
+                    } else { reject(); }
+                };
+                document.head.appendChild(s);
+            });
+        }
+        // 标记加载状态
+        window._libsReady = Promise.all([
+            _loadScript('https://cdn.bootcdn.net/ajax/libs/marked/12.0.1/marked.min.js',
+                        'https://cdn.jsdelivr.net/npm/marked@12.0.1/marked.min.js'),
+            _loadScript('https://cdn.bootcdn.net/ajax/libs/highlight.js/11.9.0/highlight.min.js',
+                        'https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/lib/highlight.min.js')
+        ]).then(function() {
+            console.log('[CDN] marked.js + highlight.js 加载完成');
+            window._libsLoaded = true;
+        }).catch(function() {
+            console.error('[CDN] 库加载失败，将使用纯文本模式');
+            window._libsLoaded = false;
+        });
+    </script>
+    <link rel="stylesheet" href="https://cdn.bootcdn.net/ajax/libs/highlight.js/11.9.0/styles/github.min.css">
+    <style>
+        @keyframes pulse-ring { 0% { transform: scale(0.9); opacity: 1; } 100% { transform: scale(1.6); opacity: 0; } }
+        @keyframes dash-flow { to { stroke-dashoffset: -20; } }
+        @keyframes fadeInUp { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+        @keyframes progressPulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.6; } }
+        .pulse-ring { animation: pulse-ring 1.5s cubic-bezier(0.215,0.61,0.355,1) infinite; }
+        .dash-flow { animation: dash-flow 0.6s linear infinite; }
+        .log-entry { animation: fadeInUp 0.2s ease-out; }
+        .progress-pulse { animation: progressPulse 1.5s ease-in-out infinite; }
+        .markdown-body h1 { font-size: 1.6em; font-weight: 700; margin: 1em 0 0.5em; border-bottom: 2px solid #e5e7eb; padding-bottom: 0.3em; }
+        .markdown-body h2 { font-size: 1.35em; font-weight: 600; margin: 0.8em 0 0.4em; border-bottom: 1px solid #e5e7eb; padding-bottom: 0.2em; }
+        .markdown-body h3 { font-size: 1.15em; font-weight: 600; margin: 0.6em 0 0.3em; }
+        .markdown-body p { margin: 0.5em 0; line-height: 1.75; }
+        .markdown-body ul, .markdown-body ol { padding-left: 1.8em; margin: 0.4em 0; }
+        .markdown-body li { margin: 0.2em 0; }
+        .markdown-body code { background: #f3f4f6; padding: 0.15em 0.4em; border-radius: 4px; font-size: 0.88em; }
+        .markdown-body pre { background: #1f2937; color: #e5e7eb; padding: 1em; border-radius: 8px; overflow-x: auto; margin: 0.8em 0; }
+        .markdown-body pre code { background: none; padding: 0; color: inherit; }
+        .markdown-body blockquote { border-left: 4px solid #3b82f6; padding-left: 1em; margin: 0.8em 0; color: #6b7280; }
+        .markdown-body table { border-collapse: collapse; width: 100%; margin: 0.8em 0; }
+        .markdown-body th, .markdown-body td { border: 1px solid #e5e7eb; padding: 0.5em 0.8em; text-align: left; }
+        .markdown-body th { background: #f9fafb; font-weight: 600; }
+        .dark .markdown-body h1, .dark .markdown-body h2 { border-bottom-color: #374151; }
+        .dark .markdown-body code { background: #374151; }
+        .dark .markdown-body pre { background: #111827; }
+        .dark .markdown-body th { background: #1f2937; }
+        .dark .markdown-body th, .dark .markdown-body td { border-color: #374151; }
+        .scrollbar-thin::-webkit-scrollbar { width: 5px; height: 5px; }
+        .scrollbar-thin::-webkit-scrollbar-thumb { background: #94a3b8; border-radius: 4px; }
+        .dark .scrollbar-thin::-webkit-scrollbar-thumb { background: #475569; }
+    </style>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: { extend: { colors: {
+                primary: { 50:'#eff6ff',100:'#dbeafe',200:'#bfdbfe',300:'#93c5fd',400:'#60a5fa',500:'#3b82f6',600:'#2563eb',700:'#1d4ed8',800:'#1e40af',900:'#1e3a8a' },
+                coord: '#6366f1', analyze: '#06b6d4', review: '#f59e0b', synth: '#10b981', advise: '#ec4899'
+            }}}
+        }
+    </script>
+    <style>
+        /* Font Awesome 加载失败时的兜底：隐藏破损图标，显示文字 */
+        @font-face { font-family: 'fa-fallback'; src: url(data:,); }
+        .fa::before { font-family: 'FontAwesome', 'fa-fallback' !important; }
+    </style>
+</head>
+<body class="bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-gray-100 min-h-screen">
+
+<!-- API 配置模态框 -->
+<div id="api-modal" class="fixed inset-0 z-50 hidden items-center justify-center bg-black/50 backdrop-blur-sm">
+    <div class="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl w-full max-w-md mx-4 overflow-hidden">
+        <div class="flex items-center justify-between px-6 py-4 border-b border-gray-200 dark:border-gray-700">
+            <h2 class="text-lg font-bold"><i class="fa fa-cog mr-2 text-primary-500"></i>API 配置</h2>
+            <button onclick="closeModal()" class="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200"><i class="fa fa-times text-xl"></i></button>
+        </div>
+        <div class="p-6 space-y-4">
+            <div>
+                <label class="block text-sm font-medium mb-1.5">OpenAI API Key <span class="text-red-500">*</span></label>
+                <input type="password" id="api-key" placeholder="sk-xxxxxxxx" class="w-full px-4 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 focus:ring-2 focus:ring-primary-500 outline-none">
+                <p class="text-xs text-gray-500 mt-1">后端也支持通过 .env 文件配置</p>
+            </div>
+            <div>
+                <label class="block text-sm font-medium mb-1.5">API Base URL</label>
+                <input type="text" id="api-base" placeholder="https://api.openai.com/v1" class="w-full px-4 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 focus:ring-2 focus:ring-primary-500 outline-none">
+            </div>
+            <div>
+                <label class="block text-sm font-medium mb-1.5">模型</label>
+                <select id="model-sel" class="w-full px-4 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 focus:ring-2 focus:ring-primary-500 outline-none">
+                    <option value="mimo-v2-pro">MiMo-v2-Pro (当前)</option>
+                    <option value="gpt-4o">GPT-4o</option>
+                    <option value="gpt-4o-mini">GPT-4o Mini</option>
+                    <option value="gpt-4-turbo">GPT-4 Turbo</option>
+                    <option value="gpt-3.5-turbo">GPT-3.5 Turbo</option>
+                </select>
+            </div>
+            <button onclick="testApi()" id="test-btn" class="w-full py-2.5 bg-primary-600 hover:bg-primary-700 text-white rounded-lg font-medium transition flex items-center justify-center gap-2">
+                <i class="fa fa-plug"></i>测试连接
+            </button>
+            <div id="test-msg" class="hidden text-sm text-center py-2 rounded-lg"></div>
+        </div>
+        <div class="flex gap-3 px-6 py-4 bg-gray-50 dark:bg-gray-750 border-t border-gray-200 dark:border-gray-700">
+            <button onclick="closeModal()" class="flex-1 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition">取消</button>
+            <button onclick="saveConfig()" class="flex-1 py-2.5 bg-primary-600 hover:bg-primary-700 text-white rounded-lg font-medium transition">保存</button>
+        </div>
+    </div>
+</div>
+
+<!-- 顶栏 -->
+<header class="sticky top-0 z-40 bg-white/80 dark:bg-gray-800/80 backdrop-blur-md border-b border-gray-200 dark:border-gray-700">
+    <div class="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between">
+        <div class="flex items-center gap-3">
+            <div class="w-10 h-10 bg-gradient-to-br from-coord to-analyze rounded-xl flex items-center justify-center shadow-lg">
+                <i class="fa fa-connectdevelop text-white text-lg"></i>
+            </div>
+            <div>
+                <h1 class="text-lg font-bold leading-tight">多Agent协作研究助手</h1>
+                <p class="text-xs text-gray-500 dark:text-gray-400">后端驱动 · Python + FastAPI</p>
+            </div>
+        </div>
+        <div class="flex items-center gap-2">
+            <span id="api-badge" class="px-2.5 py-1 text-xs rounded-full bg-gray-100 dark:bg-gray-700 text-gray-500">
+                <i class="fa fa-circle-o mr-1"></i>检查中...
+            </span>
+            <button onclick="openModal()" class="px-3 py-1.5 text-xs rounded-lg border border-gray-300 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700 transition flex items-center gap-1" title="API配置">
+                <i class="fa fa-cog"></i> 设置
+            </button>
+            <button onclick="toggleTheme()" id="theme-btn" class="px-3 py-1.5 text-xs rounded-lg border border-gray-300 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700 transition" title="切换主题">
+                <i id="theme-icon" class="fa fa-moon-o"></i> 深色
+            </button>
+        </div>
+    </div>
+</header>
+
+<main class="max-w-7xl mx-auto px-4 py-6">
+    <!-- 进度条 -->
+    <div id="progress-bar" class="hidden mb-6 bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-200 dark:border-gray-700 p-4">
+        <div class="flex items-center justify-between mb-3">
+            <span class="text-sm font-medium">分析进度</span>
+            <span id="progress-text" class="text-xs text-gray-500">准备中...</span>
+        </div>
+        <div class="flex items-center gap-1">
+            <div id="prog-coordinator" class="flex-1 h-2 rounded-full bg-gray-200 dark:bg-gray-700 overflow-hidden"><div class="h-full w-0 transition-all duration-500 rounded-full"></div></div>
+            <div id="prog-analyzer" class="flex-1 h-2 rounded-full bg-gray-200 dark:bg-gray-700 overflow-hidden"><div class="h-full w-0 transition-all duration-500 rounded-full"></div></div>
+            <div id="prog-reviewer" class="flex-1 h-2 rounded-full bg-gray-200 dark:bg-gray-700 overflow-hidden"><div class="h-full w-0 transition-all duration-500 rounded-full"></div></div>
+            <div id="prog-synthesizer" class="flex-1 h-2 rounded-full bg-gray-200 dark:bg-gray-700 overflow-hidden"><div class="h-full w-0 transition-all duration-500 rounded-full"></div></div>
+            <div id="prog-advisor" class="flex-1 h-2 rounded-full bg-gray-200 dark:bg-gray-700 overflow-hidden"><div class="h-full w-0 transition-all duration-500 rounded-full"></div></div>
+        </div>
+        <div class="flex justify-between mt-1.5 text-[10px] text-gray-400">
+            <span>协调者</span><span>分析专员</span><span>评审专员</span><span>综合专员</span><span>研究顾问</span>
+        </div>
+    </div>
+
+    <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+        <!-- 左侧 -->
+        <div class="lg:col-span-4 space-y-6">
+            <!-- 模式 -->
+            <div class="bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden">
+                <div class="px-5 py-4 border-b border-gray-200 dark:border-gray-700">
+                    <h2 class="font-semibold"><i class="fa fa-tasks mr-2 text-primary-500"></i>分析模式</h2>
+                </div>
+                <div class="p-4 space-y-2">
+                    <button onclick="selectMode('paper')" data-mode="paper" class="mode-btn w-full p-3.5 rounded-xl border-2 border-primary-500 bg-primary-50 dark:bg-primary-900/20 text-left transition hover:shadow-md flex items-center gap-3">
+                        <div class="w-10 h-10 bg-blue-100 dark:bg-blue-800 rounded-lg flex items-center justify-center flex-shrink-0"><i class="fa fa-file-text-o text-primary-500"></i></div>
+                        <div><h3 class="font-medium text-sm">论文分析</h3><p class="text-xs text-gray-500">深度解析单篇学术论文</p></div>
+                    </button>
+                    <button onclick="selectMode('review')" data-mode="review" class="mode-btn w-full p-3.5 rounded-xl border-2 border-gray-200 dark:border-gray-600 text-left transition hover:shadow-md flex items-center gap-3">
+                        <div class="w-10 h-10 bg-purple-100 dark:bg-purple-800 rounded-lg flex items-center justify-center flex-shrink-0"><i class="fa fa-book text-purple-500"></i></div>
+                        <div><h3 class="font-medium text-sm">文献综述</h3><p class="text-xs text-gray-500">多文献并行分析与综合</p></div>
+                    </button>
+                    <button onclick="selectMode('proposal')" data-mode="proposal" class="mode-btn w-full p-3.5 rounded-xl border-2 border-gray-200 dark:border-gray-600 text-left transition hover:shadow-md flex items-center gap-3">
+                        <div class="w-10 h-10 bg-green-100 dark:bg-green-800 rounded-lg flex items-center justify-center flex-shrink-0"><i class="fa fa-flask text-green-500"></i></div>
+                        <div><h3 class="font-medium text-sm">研究方案</h3><p class="text-xs text-gray-500">设计实验方案与研究路径</p></div>
+                    </button>
+                </div>
+            </div>
+
+            <!-- 输入 -->
+            <div class="bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden">
+                <div class="px-5 py-4 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between">
+                    <h2 class="font-semibold"><i class="fa fa-pencil mr-2 text-green-500"></i><span id="input-title">输入论文内容</span></h2>
+                    <span id="char-count" class="text-xs text-gray-400">0 字符</span>
+                </div>
+                <div class="px-4 pt-3">
+                    <div class="flex items-center gap-2 flex-wrap">
+                        <span class="text-xs text-gray-400">示例：</span>
+                        <button onclick="fillExample('paper')" class="text-xs px-2 py-1 rounded-md bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 hover:bg-blue-100 transition">论文</button>
+                        <button onclick="fillExample('review')" class="text-xs px-2 py-1 rounded-md bg-purple-50 dark:bg-purple-900/20 text-purple-600 dark:text-purple-400 hover:bg-purple-100 transition">综述</button>
+                        <button onclick="fillExample('proposal')" class="text-xs px-2 py-1 rounded-md bg-green-50 dark:bg-green-900/20 text-green-600 dark:text-green-400 hover:bg-green-100 transition">方案</button>
+                    </div>
+                </div>
+                <div class="p-4">
+                    <textarea id="input-text" rows="7" placeholder="在此粘贴论文内容、研究主题或研究问题...&#10;&#10;提示: Ctrl+Enter 快速开始" class="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-xl bg-white dark:bg-gray-700 focus:ring-2 focus:ring-primary-500 outline-none resize-none scrollbar-thin text-sm leading-relaxed"></textarea>
+                </div>
+                <div class="px-4 pb-4 flex gap-2">
+                    <button onclick="startAnalysis()" id="start-btn" class="flex-1 py-2.5 bg-gradient-to-r from-primary-600 to-purple-600 hover:from-primary-700 hover:to-purple-700 text-white rounded-xl font-medium transition shadow-lg shadow-primary-500/20 flex items-center justify-center gap-2">
+                        <i class="fa fa-play"></i>开始分析
+                    </button>
+                    <button onclick="stopAnalysis()" id="stop-btn" class="hidden px-5 py-2.5 bg-red-500 hover:bg-red-600 text-white rounded-xl font-medium transition flex items-center justify-center gap-2">
+                        <i class="fa fa-stop"></i>停止
+                    </button>
+                    <button onclick="quickTest()" id="test-btn" class="px-4 py-2.5 bg-amber-500 hover:bg-amber-600 text-white rounded-xl font-medium transition flex items-center justify-center gap-2" title="快速测试：模拟完整流程，不消耗 token">
+                        <i class="fa fa-bolt"></i>快速测试
+                    </button>
+                </div>
+            </div>
+
+            <!-- Agent 状态 -->
+            <div class="bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden">
+                <div class="px-5 py-4 border-b border-gray-200 dark:border-gray-700">
+                    <h2 class="font-semibold"><i class="fa fa-users mr-2 text-purple-500"></i>Agent 状态</h2>
+                </div>
+                <div class="p-3 space-y-1.5" id="agent-panel">
+                    <div data-agent="coordinator" class="agent-card flex items-center gap-3 p-2.5 rounded-xl transition">
+                        <div class="relative flex-shrink-0">
+                            <div class="w-10 h-10 rounded-full bg-coord/15 flex items-center justify-center text-coord"><i class="fa fa-user-circle text-lg"></i></div>
+                            <div class="agent-dot absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full bg-gray-300 dark:bg-gray-600 border-2 border-white dark:border-gray-800"></div>
+                        </div>
+                        <div class="flex-1 min-w-0"><div class="font-medium text-sm">Coordinator</div><div class="text-xs text-gray-500 truncate">协调者 · 任务分解与调度</div></div>
+                        <span class="agent-badge text-xs px-2 py-0.5 rounded-full bg-gray-100 dark:bg-gray-700 text-gray-500">待机</span>
+                    </div>
+                    <div data-agent="analyzer" class="agent-card flex items-center gap-3 p-2.5 rounded-xl transition">
+                        <div class="relative flex-shrink-0">
+                            <div class="w-10 h-10 rounded-full bg-analyze/15 flex items-center justify-center text-analyze"><i class="fa fa-search text-lg"></i></div>
+                            <div class="agent-dot absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full bg-gray-300 dark:bg-gray-600 border-2 border-white dark:border-gray-800"></div>
+                        </div>
+                        <div class="flex-1 min-w-0"><div class="font-medium text-sm">Analyzer</div><div class="text-xs text-gray-500 truncate">分析专员 · 内容分析与方法论</div></div>
+                        <span class="agent-badge text-xs px-2 py-0.5 rounded-full bg-gray-100 dark:bg-gray-700 text-gray-500">待机</span>
+                    </div>
+                    <div data-agent="reviewer" class="agent-card flex items-center gap-3 p-2.5 rounded-xl transition">
+                        <div class="relative flex-shrink-0">
+                            <div class="w-10 h-10 rounded-full bg-review/15 flex items-center justify-center text-review"><i class="fa fa-check-square-o text-lg"></i></div>
+                            <div class="agent-dot absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full bg-gray-300 dark:bg-gray-600 border-2 border-white dark:border-gray-800"></div>
+                        </div>
+                        <div class="flex-1 min-w-0"><div class="font-medium text-sm">Reviewer</div><div class="text-xs text-gray-500 truncate">评审专员 · 创新性与局限性</div></div>
+                        <span class="agent-badge text-xs px-2 py-0.5 rounded-full bg-gray-100 dark:bg-gray-700 text-gray-500">待机</span>
+                    </div>
+                    <div data-agent="synthesizer" class="agent-card flex items-center gap-3 p-2.5 rounded-xl transition">
+                        <div class="relative flex-shrink-0">
+                            <div class="w-10 h-10 rounded-full bg-synth/15 flex items-center justify-center text-synth"><i class="fa fa-cubes text-lg"></i></div>
+                            <div class="agent-dot absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full bg-gray-300 dark:bg-gray-600 border-2 border-white dark:border-gray-800"></div>
+                        </div>
+                        <div class="flex-1 min-w-0"><div class="font-medium text-sm">Synthesizer</div><div class="text-xs text-gray-500 truncate">综合专员 · 整合与报告</div></div>
+                        <span class="agent-badge text-xs px-2 py-0.5 rounded-full bg-gray-100 dark:bg-gray-700 text-gray-500">待机</span>
+                    </div>
+                    <div data-agent="advisor" class="agent-card flex items-center gap-3 p-2.5 rounded-xl transition">
+                        <div class="relative flex-shrink-0">
+                            <div class="w-10 h-10 rounded-full bg-advise/15 flex items-center justify-center text-advise"><i class="fa fa-lightbulb-o text-lg"></i></div>
+                            <div class="agent-dot absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full bg-gray-300 dark:bg-gray-600 border-2 border-white dark:border-gray-800"></div>
+                        </div>
+                        <div class="flex-1 min-w-0"><div class="font-medium text-sm">Advisor</div><div class="text-xs text-gray-500 truncate">研究顾问 · 建议与方向</div></div>
+                        <span class="agent-badge text-xs px-2 py-0.5 rounded-full bg-gray-100 dark:bg-gray-700 text-gray-500">待机</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 右侧 -->
+        <div class="lg:col-span-8 space-y-6">
+            <!-- 流程图 -->
+            <div class="bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden">
+                <div class="px-5 py-4 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between">
+                    <h2 class="font-semibold"><i class="fa fa-project-diagram mr-2 text-primary-500"></i>协作流程</h2>
+                    <span id="flow-status" class="text-xs px-3 py-1 rounded-full bg-gray-100 dark:bg-gray-700 text-gray-500">等待开始</span>
+                </div>
+                <div class="p-5">
+                    <svg viewBox="0 0 700 180" class="w-full h-auto">
+                        <defs>
+                            <marker id="arr" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><path d="M0,0 L8,3 L0,6" fill="#94a3b8"/></marker>
+                            <marker id="arr-b" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><path d="M0,0 L8,3 L0,6" fill="#3b82f6"/></marker>
+                        </defs>
+                        <line id="fl-coord-analyzer" x1="100" y1="85" x2="205" y2="85" stroke="#cbd5e1" stroke-width="2" marker-end="url(#arr)" class="flow-link"/>
+                        <line id="fl-analyzer-reviewer" x1="260" y1="85" x2="345" y2="85" stroke="#cbd5e1" stroke-width="2" marker-end="url(#arr)" class="flow-link"/>
+                        <line id="fl-reviewer-synthesizer" x1="400" y1="85" x2="485" y2="85" stroke="#cbd5e1" stroke-width="2" marker-end="url(#arr)" class="flow-link"/>
+                        <line id="fl-synthesizer-advisor" x1="540" y1="85" x2="615" y2="85" stroke="#cbd5e1" stroke-width="2" marker-end="url(#arr)" class="flow-link"/>
+                        <g id="node-coordinator"><circle cx="100" cy="85" r="28" fill="#6366f1" opacity="0.4" class="transition-all duration-300"/><circle cx="100" cy="85" r="34" fill="none" stroke="#6366f1" stroke-width="2" opacity="0" class="node-ring"/><text x="100" y="90" text-anchor="middle" fill="white" font-size="16" font-family="FontAwesome">&#xf108;</text><text x="100" y="128" text-anchor="middle" fill="#64748b" font-size="10" font-weight="600">Coordinator</text><text x="100" y="141" text-anchor="middle" fill="#94a3b8" font-size="9">任务分解</text></g>
+                        <g id="node-analyzer"><circle cx="230" cy="85" r="28" fill="#06b6d4" opacity="0.4" class="transition-all duration-300"/><circle cx="230" cy="85" r="34" fill="none" stroke="#06b6d4" stroke-width="2" opacity="0" class="node-ring"/><text x="230" y="90" text-anchor="middle" fill="white" font-size="16" font-family="FontAwesome">&#xf002;</text><text x="230" y="128" text-anchor="middle" fill="#64748b" font-size="10" font-weight="600">Analyzer</text><text x="230" y="141" text-anchor="middle" fill="#94a3b8" font-size="9">内容分析</text></g>
+                        <g id="node-reviewer"><circle cx="370" cy="85" r="28" fill="#f59e0b" opacity="0.4" class="transition-all duration-300"/><circle cx="370" cy="85" r="34" fill="none" stroke="#f59e0b" stroke-width="2" opacity="0" class="node-ring"/><text x="370" y="90" text-anchor="middle" fill="white" font-size="16" font-family="FontAwesome">&#xf046;</text><text x="370" y="128" text-anchor="middle" fill="#64748b" font-size="10" font-weight="600">Reviewer</text><text x="370" y="141" text-anchor="middle" fill="#94a3b8" font-size="9">批判评审</text></g>
+                        <g id="node-synthesizer"><circle cx="510" cy="85" r="28" fill="#10b981" opacity="0.4" class="transition-all duration-300"/><circle cx="510" cy="85" r="34" fill="none" stroke="#10b981" stroke-width="2" opacity="0" class="node-ring"/><text x="510" y="90" text-anchor="middle" fill="white" font-size="16" font-family="FontAwesome">&#xf1b3;</text><text x="510" y="128" text-anchor="middle" fill="#64748b" font-size="10" font-weight="600">Synthesizer</text><text x="510" y="141" text-anchor="middle" fill="#94a3b8" font-size="9">整合报告</text></g>
+                        <g id="node-advisor"><circle cx="640" cy="85" r="28" fill="#ec4899" opacity="0.4" class="transition-all duration-300"/><circle cx="640" cy="85" r="34" fill="none" stroke="#ec4899" stroke-width="2" opacity="0" class="node-ring"/><text x="640" y="90" text-anchor="middle" fill="white" font-size="16" font-family="FontAwesome">&#xf0eb;</text><text x="640" y="128" text-anchor="middle" fill="#64748b" font-size="10" font-weight="600">Advisor</text><text x="640" y="141" text-anchor="middle" fill="#94a3b8" font-size="9">研究建议</text></g>
+                    </svg>
+                </div>
+            </div>
+
+            <!-- 日志 -->
+            <div class="bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden">
+                <div class="px-5 py-3 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between">
+                    <h2 class="font-semibold text-sm"><i class="fa fa-terminal mr-2 text-green-500"></i>实时日志</h2>
+                    <button onclick="clearLogs()" class="text-xs text-gray-400 hover:text-gray-600 transition"><i class="fa fa-trash-o mr-1"></i>清空</button>
+                </div>
+                <div id="log-panel" class="h-40 overflow-y-auto bg-gray-900 rounded-b-2xl p-4 font-mono text-xs space-y-0.5 scrollbar-thin">
+                    <div class="text-gray-500">[系统] 等待分析任务... <span class="text-gray-600">Ctrl+Enter 快速开始</span></div>
+                </div>
+            </div>
+
+            <!-- 结果 -->
+            <div class="bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden">
+                <div class="px-5 py-3 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between">
+                    <h2 class="font-semibold"><i class="fa fa-bar-chart mr-2 text-primary-500"></i>分析结果</h2>
+                    <div class="flex gap-2">
+                        <button onclick="copyResult()" class="text-xs px-3 py-1 bg-gray-100 dark:bg-gray-700 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition"><i class="fa fa-copy mr-1"></i>复制</button>
+                        <button onclick="downloadResult()" class="text-xs px-3 py-1 bg-primary-100 dark:bg-primary-900/30 rounded-lg hover:bg-primary-200 transition"><i class="fa fa-download mr-1"></i>下载</button>
+                    </div>
+                </div>
+                <div class="flex overflow-x-auto scrollbar-thin border-b border-gray-200 dark:border-gray-700 px-2" id="tab-bar">
+                    <button onclick="switchTab('plan')" data-tab="plan" class="tab-btn px-4 py-2.5 text-sm font-medium border-b-2 border-transparent text-gray-500 whitespace-nowrap transition"><i class="fa fa-bullseye mr-1"></i>分析计划</button>
+                    <button onclick="switchTab('analysis')" data-tab="analysis" class="tab-btn px-4 py-2.5 text-sm font-medium border-b-2 border-primary-500 text-primary-600 dark:text-primary-400 whitespace-nowrap transition"><i class="fa fa-search mr-1"></i>内容分析</button>
+                    <button onclick="switchTab('review')" data-tab="review" class="tab-btn px-4 py-2.5 text-sm font-medium border-b-2 border-transparent text-gray-500 whitespace-nowrap transition"><i class="fa fa-check-square-o mr-1"></i>评审报告</button>
+                    <button onclick="switchTab('synthesis')" data-tab="synthesis" class="tab-btn px-4 py-2.5 text-sm font-medium border-b-2 border-transparent text-gray-500 whitespace-nowrap transition"><i class="fa fa-cubes mr-1"></i>综合报告</button>
+                    <button onclick="switchTab('advice')" data-tab="advice" class="tab-btn px-4 py-2.5 text-sm font-medium border-b-2 border-transparent text-gray-500 whitespace-nowrap transition"><i class="fa fa-lightbulb-o mr-1"></i>研究建议</button>
+                    <button onclick="switchTab('full')" data-tab="full" class="tab-btn px-4 py-2.5 text-sm font-medium border-b-2 border-transparent text-gray-500 whitespace-nowrap transition"><i class="fa fa-file-pdf-o mr-1"></i>完整报告</button>
+                </div>
+                <div id="result-content" class="p-6 min-h-[300px] max-h-[600px] overflow-y-auto scrollbar-thin">
+                    <div id="result-placeholder" class="flex flex-col items-center justify-center text-gray-400 py-16">
+                        <i class="fa fa-graduation-cap text-5xl mb-4 opacity-40"></i>
+                        <p class="text-base">请配置 API 并输入内容后开始分析</p>
+                        <p class="text-sm mt-1">每个 Agent 输出将实时显示在对应标签页</p>
+                    </div>
+                    <div id="result-md" class="hidden markdown-body dark:text-gray-200"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+</main>
+
+<footer class="mt-8 py-6 border-t border-gray-200 dark:border-gray-700">
+    <div class="max-w-7xl mx-auto px-4 text-center text-sm text-gray-500">
+        <p>多Agent协作研究助手 v2.0 · Python + FastAPI 后端驱动 · 轮询架构</p>
+    </div>
+</footer>
+
+<script>
+// =====================================================================
+//  常量与状态
+// =====================================================================
+const AGENT_NAMES = { coordinator:'协调者', analyzer:'分析专员', reviewer:'评审专员', synthesizer:'综合专员', advisor:'研究顾问' };
+const AGENT_COLORS = { coordinator:'#6366f1', analyzer:'#06b6d4', reviewer:'#f59e0b', synthesizer:'#10b981', advisor:'#ec4899' };
+const LINK_MAP = { coordinator:null, analyzer:'fl-coord-analyzer', reviewer:'fl-analyzer-reviewer', synthesizer:'fl-reviewer-synthesizer', advisor:'fl-synthesizer-advisor' };
+const STEPS = ['coordinator','analyzer','reviewer','synthesizer','advisor'];
+const TAB_MAP = { coordinator:'plan', analyzer:'analysis', reviewer:'review', synthesizer:'synthesis', advisor:'advice' };
+const REVERSE_TAB_MAP = { plan:'coordinator', analysis:'analyzer', review:'reviewer', synthesis:'synthesizer', advice:'advisor' };
+
+const MODES = {
+    paper: { title:'输入论文内容', placeholder:'在此粘贴论文内容、摘要或全文...' },
+    review: { title:'输入研究主题', placeholder:'请输入研究主题或关键词...\n\n例如：大语言模型在教育领域的应用' },
+    proposal: { title:'输入研究问题', placeholder:'请描述您的研究问题...\n\n例如：如何利用大语言模型提高在线教育的个性化程度？' }
+};
+const EXAMPLES = {
+    paper: `标题：Attention Is All You Need\n\n摘要：The dominant sequence transduction models are based on complex recurrent or convolutional neural networks that include an encoder and a decoder. We propose a new simple network architecture, the Transformer, based solely on attention mechanisms.\n\n主要内容：\n1. 提出了 Transformer 架构，完全基于注意力机制\n2. 引入了多头自注意力（Multi-Head Self-Attention）机制\n3. 使用位置编码（Positional Encoding）处理序列位置信息\n4. 在机器翻译任务上取得了当时的最优结果\n5. 模型训练效率更高，可以并行化处理\n\n结论：Transformer 架构在各种序列到序列任务中展现了卓越的性能，为后续 BERT、GPT 等模型奠定了基础。`,
+    review: '大语言模型（Large Language Model）在教育领域的应用研究',
+    proposal: '如何利用大语言模型提高在线教育的个性化学习体验？'
+};
+
+let currentMode = 'paper';
+let currentTab = 'analysis';
+let isAnalyzing = false;
+
+// 轮询定时器
+let statusPollTimer = null;
+let logsPollTimer = null;
+let lastLogId = 0;
+
+// 结果缓存
+let results = { plan:'', analysis:'', review:'', synthesis:'', advice:'' };
+
+// =====================================================================
+//  初始化
+// =====================================================================
+document.addEventListener('DOMContentLoaded', () => {
+    const theme = localStorage.getItem('theme');
+    const isDark = theme === 'dark' || (!theme && matchMedia('(prefers-color-scheme:dark)').matches);
+    document.documentElement.classList.toggle('dark', isDark);
+    document.getElementById('theme-btn').innerHTML = isDark
+        ? '<i id="theme-icon" class="fa fa-sun-o"></i> 浅色'
+        : '<i id="theme-icon" class="fa fa-moon-o"></i> 深色';
+    document.getElementById('input-text').addEventListener('input', function() {
+        document.getElementById('char-count').textContent = this.value.length + ' 字符';
+    });
+    document.getElementById('input-text').addEventListener('keydown', function(e) {
+        if (e.ctrlKey && e.key === 'Enter') { e.preventDefault(); startAnalysis(); }
+    });
+    document.getElementById('api-modal').addEventListener('click', function(e) { if (e.target === this) closeModal(); });
+    checkBackend();
+});
+
+// =====================================================================
+//  后端连接检查
+// =====================================================================
+async function checkBackend() {
+    const badge = document.getElementById('api-badge');
+    try {
+        const resp = await fetch('/api/config');
+        if (!resp.ok) {
+            throw new Error(`HTTP ${resp.status} ${resp.statusText}`);
+        }
+        const cfg = await resp.json();
+        if (cfg.has_api_key) {
+            badge.className = 'px-2.5 py-1 text-xs rounded-full bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400';
+            badge.innerHTML = `<i class="fa fa-check-circle mr-1"></i>${cfg.masked_key}`;
+        } else {
+            badge.className = 'px-2.5 py-1 text-xs rounded-full bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-400';
+            badge.innerHTML = '<i class="fa fa-exclamation-circle mr-1"></i>需配置Key';
+        }
+    } catch (e) {
+        badge.className = 'px-2.5 py-1 text-xs rounded-full bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400';
+        badge.innerHTML = '<i class="fa fa-times-circle mr-1"></i>后端离线';
+        console.error(`[后端连接失败] ${e.message} — 请确认 server.py 正在运行，当前地址: ${window.location.href}`);
+    }
+}
+
+// =====================================================================
+//  主题
+// =====================================================================
+function toggleTheme() {
+    const d = document.documentElement.classList.toggle('dark');
+    localStorage.setItem('theme', d ? 'dark' : 'light');
+    document.getElementById('theme-icon').className = d ? 'fa fa-sun-o' : 'fa fa-moon-o';
+    document.getElementById('theme-btn').innerHTML = d
+        ? '<i id="theme-icon" class="fa fa-sun-o"></i> 浅色'
+        : '<i id="theme-icon" class="fa fa-moon-o"></i> 深色';
+}
+
+// =====================================================================
+//  API 配置模态框
+// =====================================================================
+function openModal() {
+    document.getElementById('api-modal').classList.remove('hidden');
+    document.getElementById('api-modal').classList.add('flex');
+    // 回填已保存的配置
+    const key = localStorage.getItem('ra_api_key');
+    const base = localStorage.getItem('ra_api_base');
+    const model = localStorage.getItem('ra_model');
+    if (key) document.getElementById('api-key').value = key;
+    if (base) document.getElementById('api-base').value = base;
+    if (model) document.getElementById('model-sel').value = model;
+}
+function closeModal() {
+    document.getElementById('api-modal').classList.add('hidden');
+    document.getElementById('api-modal').classList.remove('flex');
+}
+async function testApi() {
+    const btn = document.getElementById('test-btn');
+    btn.disabled = true; btn.innerHTML = '<i class="fa fa-spinner fa-spin mr-2"></i>测试中...';
+    try {
+        const resp = await fetch('/api/test', {
+            method: 'POST',
+            headers: {'Content-Type':'application/json'},
+            body: JSON.stringify({
+                api_key: document.getElementById('api-key').value.trim(),
+                api_base: document.getElementById('api-base').value.trim() || undefined,
+                model: document.getElementById('model-sel').value,
+            })
+        });
+        const data = await resp.json();
+        const msg = document.getElementById('test-msg');
+        msg.className = `text-sm text-center py-2 rounded-lg ${data.success ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400' : 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400'}`;
+        msg.textContent = data.success ? '✅ 连接成功！' : `❌ ${data.message}`;
+        msg.classList.remove('hidden');
+    } catch(e) { alert('后端连接失败: ' + e.message); }
+    btn.disabled = false; btn.innerHTML = '<i class="fa fa-plug"></i>测试连接';
+}
+function saveConfig() {
+    localStorage.setItem('ra_api_key', document.getElementById('api-key').value.trim());
+    localStorage.setItem('ra_api_base', document.getElementById('api-base').value.trim());
+    localStorage.setItem('ra_model', document.getElementById('model-sel').value);
+    closeModal();
+    addLog('配置已保存到浏览器', 'success');
+    checkBackend();
+}
+
+// =====================================================================
+//  模式 & 示例
+// =====================================================================
+function selectMode(mode) {
+    currentMode = mode;
+    document.querySelectorAll('.mode-btn').forEach(b => {
+        const a = b.dataset.mode === mode;
+        b.className = `mode-btn w-full p-3.5 rounded-xl border-2 text-left transition hover:shadow-md flex items-center gap-3 ${a ? 'border-primary-500 bg-primary-50 dark:bg-primary-900/20' : 'border-gray-200 dark:border-gray-600'}`;
+    });
+    document.getElementById('input-title').textContent = MODES[mode].title;
+    document.getElementById('input-text').placeholder = MODES[mode].placeholder;
+}
+function fillExample(type) {
+    document.getElementById('input-text').value = EXAMPLES[type] || '';
+    document.getElementById('input-text').dispatchEvent(new Event('input'));
+    if (type !== currentMode) selectMode(type);
+}
+
+// =====================================================================
+//  日志
+// =====================================================================
+function addLog(msg, type='info') {
+    const p = document.getElementById('log-panel');
+    const t = new Date().toLocaleTimeString('zh-CN',{hour12:false});
+    const c = {info:'text-blue-400',success:'text-green-400',warn:'text-yellow-400',error:'text-red-400',agent:'text-cyan-400',coord:'text-indigo-400'};
+    const ic = {info:'fa-info-circle',success:'fa-check-circle',warn:'fa-exclamation-triangle',error:'fa-times-circle',agent:'fa-robot',coord:'fa-bullseye'};
+    const d = document.createElement('div');
+    d.className = `log-entry ${c[type]||c.info}`;
+    d.innerHTML = `<span class="text-gray-600">[${t}]</span> <i class="fa ${ic[type]||ic.info} mr-1"></i>${msg}`;
+    p.appendChild(d); p.scrollTop = p.scrollHeight;
+}
+function addLogFromServer(log) {
+    const p = document.getElementById('log-panel');
+    const c = {info:'text-blue-400',success:'text-green-400',warn:'text-yellow-400',error:'text-red-400',agent:'text-cyan-400',coord:'text-indigo-400'};
+    const ic = {info:'fa-info-circle',success:'fa-check-circle',warn:'fa-exclamation-triangle',error:'fa-times-circle',agent:'fa-robot',coord:'fa-bullseye'};
+    const d = document.createElement('div');
+    d.className = `log-entry ${c[log.type]||c.info}`;
+    d.innerHTML = `<span class="text-gray-600">[${log.time}]</span> <i class="fa ${ic[log.type]||ic.info} mr-1"></i>${log.message}`;
+    p.appendChild(d); p.scrollTop = p.scrollHeight;
+}
+function clearLogs() { document.getElementById('log-panel').innerHTML = '<div class="text-gray-500">[系统] 日志已清空</div>'; }
+
+// =====================================================================
+//  Agent 状态 & 流程图
+// =====================================================================
+function setAgentStatus(agent, status) {
+    const card = document.querySelector(`.agent-card[data-agent="${agent}"]`);
+    if (!card) return;
+    const dot = card.querySelector('.agent-dot');
+    const badge = card.querySelector('.agent-badge');
+    const sm = {
+        idle:    {dot:'bg-gray-300 dark:bg-gray-600', badge:'bg-gray-100 dark:bg-gray-700 text-gray-500', label:'待机'},
+        working: {dot:'bg-blue-500 pulse-ring', badge:'bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400', label:'工作中'},
+        done:    {dot:'bg-green-500', badge:'bg-green-100 dark:bg-green-900/30 text-green-600 dark:text-green-400', label:'完成'},
+        error:   {dot:'bg-red-500', badge:'bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400', label:'错误'}
+    }[status] || {dot:'bg-gray-300', badge:'bg-gray-100 text-gray-500', label:'待机'};
+    dot.className = `agent-dot absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full border-2 border-white dark:border-gray-800 ${sm.dot}`;
+    badge.className = `agent-badge text-xs px-2 py-0.5 rounded-full ${sm.badge}`;
+    badge.textContent = sm.label;
+    // 流程图节点
+    const ring = document.querySelector(`#node-${agent} .node-ring`);
+    if (ring) { ring.setAttribute('opacity', status==='working'?'1':'0'); status==='working'?ring.classList.add('pulse-ring'):ring.classList.remove('pulse-ring'); }
+    const c = document.querySelector(`#node-${agent} > circle:first-child`);
+    if (c) c.setAttribute('opacity', status==='idle'?'0.4':'1');
+}
+function activateLink(agent) {
+    const id = LINK_MAP[agent];
+    if (!id) return;
+    const l = document.getElementById(id);
+    if (!l) return;
+    l.setAttribute('stroke','#3b82f6'); l.setAttribute('stroke-width','3'); l.setAttribute('marker-end','url(#arr-b)'); l.classList.add('dash-flow');
+}
+function resetFlow() {
+    STEPS.forEach(a => setAgentStatus(a, 'idle'));
+    document.querySelectorAll('.flow-link').forEach(l => { l.setAttribute('stroke','#cbd5e1'); l.setAttribute('stroke-width','2'); l.setAttribute('marker-end','url(#arr)'); l.classList.remove('dash-flow'); });
+}
+
+// =====================================================================
+//  进度条
+// =====================================================================
+function setProgress(agent) {
+    document.getElementById('progress-bar').classList.remove('hidden');
+    document.getElementById('progress-text').textContent = `${AGENT_NAMES[agent]} 工作中...`;
+    STEPS.forEach((k,i) => {
+        const el = document.querySelector(`#prog-${k} > div`);
+        const ki = STEPS.indexOf(agent);
+        const si = i;
+        if (si < ki) { el.className='h-full w-full transition-all duration-500 rounded-full'; el.style.backgroundColor=AGENT_COLORS[k]; }
+        else if (si === ki) { el.className='h-full w-1/2 progress-pulse transition-all duration-500 rounded-full'; el.style.backgroundColor=AGENT_COLORS[k]; }
+        else { el.className='h-full w-0 transition-all duration-500 rounded-full'; el.style.backgroundColor=''; }
+    });
+}
+function finishProgress() {
+    document.getElementById('progress-text').textContent = '全部完成';
+    STEPS.forEach(k => { const el=document.querySelector(`#prog-${k} > div`); el.className='h-full w-full transition-all duration-500 rounded-full'; el.style.backgroundColor=AGENT_COLORS[k]; });
+}
+function hideProgress() {
+    document.getElementById('progress-bar').classList.add('hidden');
+    STEPS.forEach(k => { const el=document.querySelector(`#prog-${k} > div`); el.className='h-full w-0 transition-all duration-500 rounded-full'; el.style.backgroundColor=''; });
+}
+
+// =====================================================================
+//  标签页 & 渲染
+// =====================================================================
+function switchTab(tab) {
+    currentTab = tab;
+    document.querySelectorAll('.tab-btn').forEach(b => {
+        const a = b.dataset.tab === tab;
+        b.className = `tab-btn px-4 py-2.5 text-sm font-medium border-b-2 whitespace-nowrap transition ${a ? 'border-primary-500 text-primary-600 dark:text-primary-400' : 'border-transparent text-gray-500'}`;
+    });
+    // 如果分析已完成但当前标签没有结果，尝试从后端重新拉取
+    if (!isAnalyzing && !results[tab] && tab !== 'full') {
+        fetchAllResults().then(() => renderTab(tab));
+    } else {
+        renderTab(tab);
+    }
+}
+function renderTab(tab) {
+    const ph = document.getElementById('result-placeholder');
+    const md = document.getElementById('result-md');
+    if (!ph || !md) { console.error('[renderTab] 找不到 DOM 元素'); return; }
+    if (tab === 'full') {
+        const labels = {plan:'🎯 分析计划',analysis:'🔍 内容分析',review:'📝 评审报告',synthesis:'🔗 综合报告',advice:'💡 研究建议'};
+        let has=false, c='# 📊 多Agent协作分析报告\n\n';
+        for (const [k,l] of Object.entries(labels)) { if(results[k]) { has=true; c+=`---\n\n## ${l}\n\n${results[k]}\n\n`; } }
+        console.log(`[renderTab] full: has=${has}`);
+        if (has) { ph.style.display='none'; md.style.display='block'; md.innerHTML=safeParse(c); hlCode(md); }
+        else { ph.style.display=''; md.style.display='none'; }
+        return;
+    }
+    const tabResult = results[tab];
+    console.log(`[renderTab] tab=${tab}, hasResult=${!!tabResult}, len=${tabResult ? tabResult.length : 0}, isAnalyzing=${isAnalyzing}`);
+    if (tabResult) {
+        ph.style.display='none'; md.style.display='block';
+        md.innerHTML=safeParse(tabResult); hlCode(md);
+        console.log(`[renderTab] 已渲染 ${tabResult.length} 字到页面`);
+    } else if (isAnalyzing) {
+        ph.style.display='none'; md.style.display='block';
+        md.innerHTML='<div class="text-center text-gray-400 py-12"><i class="fa fa-spinner fa-spin text-3xl mb-4"></i><p>等待 Agent 输出...</p></div>';
+    } else {
+        ph.style.display=''; md.style.display='none';
+    }
+}
+function hlCode(el) { el.querySelectorAll('pre code').forEach(b => { try{hljs.highlightElement(b);}catch(e){} }); }
+
+// 安全的 Markdown 渲染：marked 加载失败时降级为纯文本
+function safeParse(md) {
+    if (typeof marked !== 'undefined' && marked.parse) {
+        return marked.parse(md);
+    }
+    // 降级：将 Markdown 原文以 <pre> 格式显示
+    return '<pre style="white-space:pre-wrap;word-break:break-all;font-size:14px;line-height:1.7">' +
+           md.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;') + '</pre>';
+}
+
+// =====================================================================
+//  复制 & 下载
+// =====================================================================
+const TAB_LABELS = { plan:'分析计划', analysis:'内容分析', review:'评审报告', synthesis:'综合报告', advice:'研究建议', full:'完整报告' };
+
+function copyResult() {
+    let c = currentTab==='full' ? Object.values(results).join('\n\n---\n\n') : results[currentTab];
+    const label = TAB_LABELS[currentTab] || currentTab;
+    if (!c || c.trim()==='') {
+        addLog(`复制失败：「${label}」结果为空，请先完成分析`, 'error');
+        return;
+    }
+    navigator.clipboard.writeText(c).then(() => {
+        addLog(`已复制「${label}」结果 (${c.length}字)`, 'success');
+    }).catch(e => {
+        addLog(`复制失败: ${e.message}`, 'error');
+    });
+}
+function downloadResult() {
+    let c = currentTab==='full' ? Object.values(results).join('\n\n---\n\n') : results[currentTab];
+    const label = TAB_LABELS[currentTab] || currentTab;
+    if (!c || c.trim()==='') {
+        addLog(`下载失败：「${label}」结果为空，请先完成分析`, 'error');
+        return;
+    }
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([c],{type:'text/markdown'}));
+    a.download = `report-${currentTab}-${Date.now()}.md`; a.click();
+    addLog(`已下载「${label}」报告 (${c.length}字)`, 'success');
+}
+
+// =====================================================================
+//  核心：启动分析（POST 接口 + 轮询）
+// =====================================================================
+async function startAnalysis() {
+    const input = document.getElementById('input-text').value.trim();
+    if (!input) { addLog('请输入分析内容','warn'); return; }
+    if (isAnalyzing) { addLog('分析进行中','warn'); return; }
+
+    isAnalyzing = true;
+    results = { plan:'', analysis:'', review:'', synthesis:'', advice:'' };
+    lastLogId = 0;
+
+    // UI 切换
+    const startBtn = document.getElementById('start-btn');
+    const stopBtn = document.getElementById('stop-btn');
+    startBtn.classList.add('hidden');
+    stopBtn.classList.remove('hidden');
+    stopBtn.disabled = false;
+    document.getElementById('result-placeholder').style.display = 'none';
+    document.getElementById('result-md').style.display = 'block';
+    document.getElementById('result-md').innerHTML = '<div class="text-center text-gray-400 py-12"><i class="fa fa-spinner fa-spin text-3xl mb-4"></i><p>正在启动分析...</p></div>';
+    resetFlow();
+    hideProgress();
+    document.getElementById('flow-status').textContent = '启动中...';
+
+    // 清空旧日志
+    document.getElementById('log-panel').innerHTML = '';
+
+    // 构建请求
+    const body = {
+        content: input,
+        mode: currentMode,
+        api_key: localStorage.getItem('ra_api_key') || undefined,
+        api_base: localStorage.getItem('ra_api_base') || undefined,
+        model: localStorage.getItem('ra_model') || undefined,
+    };
+
+    try {
+        addLog('正在发送请求到 /api/start-analysis ...', 'info');
+        const resp = await fetch('/api/start-analysis', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+        });
+
+        if (!resp.ok) {
+            let errDetail = `HTTP ${resp.status}`;
+            try {
+                const err = await resp.json();
+                errDetail = err.detail || err.message || JSON.stringify(err);
+            } catch {
+                const text = await resp.text().catch(() => '');
+                if (text) errDetail += ` - ${text.substring(0, 200)}`;
+            }
+            throw new Error(`${errDetail} (请求: POST /api/start-analysis, 状态码: ${resp.status})`);
+        }
+
+        // 启动成功，开始轮询
+        document.getElementById('flow-status').textContent = '分析中...';
+        addLog('分析任务已启动，等待 Agent 响应...', 'success');
+
+        // 开始轮询状态和日志
+        startPolling();
+
+    } catch (e) {
+        const errMsg = e.message || String(e);
+        addLog(`启动失败: ${errMsg}`, 'error');
+        addLog(`请求地址: ${window.location.origin}/api/start-analysis`, 'error');
+        if (errMsg.includes('Not Found') || errMsg.includes('404')) {
+            addLog('可能原因：后端服务未启动，或请求路径不匹配。请确认 server.py 正在运行', 'warn');
+        } else if (errMsg.includes('Failed to fetch') || errMsg.includes('NetworkError')) {
+            addLog('可能原因：后端服务未启动或网络不通。请检查 http://localhost:8000 是否可访问', 'warn');
+        }
+        document.getElementById('flow-status').textContent = '启动失败';
+        document.getElementById('result-md').innerHTML = `<div class="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-xl p-6 text-center">
+            <i class="fa fa-exclamation-circle text-red-500 text-4xl mb-3"></i>
+            <h3 class="text-lg font-semibold text-red-700 dark:text-red-400 mb-2">启动失败</h3>
+            <p class="text-sm text-red-600 dark:text-red-300">${e.message}</p>
+            <p class="text-xs text-gray-500 mt-3">当前页面地址: ${window.location.href}</p>
+            <p class="text-xs text-gray-500">请求地址: ${window.location.origin}/api/start-analysis</p>
+            <p class="text-xs text-gray-500 mt-1">请检查后端 server.py 是否正在运行 (python server.py)</p>
+        </div>`;
+        resetUI();
+    }
+}
+
+// =====================================================================
+//  快速测试（不消耗 token，验证前后端数据流）
+// =====================================================================
+async function quickTest() {
+    if (isAnalyzing) { addLog('分析进行中，请等待完成','warn'); return; }
+
+    isAnalyzing = true;
+    results = { plan:'', analysis:'', review:'', synthesis:'', advice:'' };
+    lastLogId = 0;
+
+    // UI 切换
+    document.getElementById('start-btn').classList.add('hidden');
+    document.getElementById('stop-btn').classList.add('hidden');
+    document.getElementById('test-btn').disabled = true;
+    document.getElementById('test-btn').innerHTML = '<i class="fa fa-spinner fa-spin"></i>测试中...';
+    document.getElementById('result-placeholder').style.display = 'none';
+    document.getElementById('result-md').style.display = 'block';
+    document.getElementById('result-md').innerHTML = '<div class="text-center text-gray-400 py-12"><i class="fa fa-bolt text-3xl mb-4 text-amber-500"></i><p>快速测试中（不消耗 token）...</p></div>';
+    resetFlow();
+    hideProgress();
+    document.getElementById('flow-status').textContent = '快速测试...';
+    document.getElementById('log-panel').innerHTML = '';
+
+    try {
+        addLog('⚡ 启动快速测试（模拟 Agent 管线）', 'info');
+        const resp = await fetch('/api/test-pipeline', { method: 'POST' });
+        if (!resp.ok) {
+            const err = await resp.json().catch(() => ({}));
+            throw new Error(err.detail || `HTTP ${resp.status}`);
+        }
+        const data = await resp.json();
+        addLog(`⚡ ${data.message}`, 'success');
+
+        // 开始轮询状态（模拟管线会更新 task_manager 状态）
+        startPolling();
+
+    } catch(e) {
+        addLog(`快速测试失败: ${e.message}`, 'error');
+        document.getElementById('flow-status').textContent = '测试失败';
+        resetUI();
+    } finally {
+        document.getElementById('test-btn').disabled = false;
+        document.getElementById('test-btn').innerHTML = '<i class="fa fa-bolt"></i>快速测试';
+    }
+}
+
+async function stopAnalysis() {
+    try {
+        const resp = await fetch('/api/stop-analysis', { method: 'POST' });
+        if (!resp.ok) {
+            const err = await resp.json().catch(() => ({}));
+            throw new Error(err.detail || `HTTP ${resp.status}`);
+        }
+        addLog('停止信号已发送', 'warn');
+    } catch(e) {
+        addLog(`发送停止信号失败: ${e.message}`, 'error');
+    }
+}
+
+// =====================================================================
+//  轮询逻辑
+// =====================================================================
+function startPolling() {
+    stopPolling(); // 先清理旧的
+    pollStatus();
+    pollLogs();
+    // 状态每 1.5 秒轮询一次，日志每 1 秒轮询一次
+    statusPollTimer = setInterval(pollStatus, 1500);
+    logsPollTimer = setInterval(pollLogs, 1000);
+}
+
+function stopPolling() {
+    if (statusPollTimer) { clearInterval(statusPollTimer); statusPollTimer = null; }
+    if (logsPollTimer) { clearInterval(logsPollTimer); logsPollTimer = null; }
+}
+
+async function pollStatus() {
+    try {
+        const resp = await fetch('/api/task-status');
+        if (!resp.ok) {
+            console.warn(`状态轮询 HTTP ${resp.status}`);
+            return;
+        }
+        const data = await resp.json();
+
+        // 更新每个 Agent 的状态
+        const states = data.agent_states || {};
+        let currentAgent = null;
+        STEPS.forEach(agent => {
+            const st = states[agent] || 'idle';
+            setAgentStatus(agent, st);
+            if (st === 'working') currentAgent = agent;
+        });
+
+        // 更新进度条和流程图连线
+        if (currentAgent) {
+            setProgress(currentAgent);
+            // 激活当前 agent 之前的连线
+            const idx = STEPS.indexOf(currentAgent);
+            for (let i = 1; i <= idx; i++) activateLink(STEPS[i]);
+        }
+
+        // 更新流程状态
+        const taskStatus = data.task_status;
+        if (taskStatus === 'running') {
+            const elapsed = data.elapsed || 0;
+            const who = currentAgent ? AGENT_NAMES[currentAgent] + ' 工作中' : '分析中';
+            document.getElementById('flow-status').textContent = `${who} (${elapsed}s)`;
+        } else if (taskStatus === 'done') {
+            finishProgress();
+            document.getElementById('flow-status').textContent = '分析完成';
+            // 激活所有连线
+            STEPS.forEach(a => activateLink(a));
+            // 拉取所有结果（必须 await 确保结果渲染完毕）
+            await fetchAllResults();
+            stopPolling();
+            resetUI();
+            addLog('══════ 分析完成 ══════', 'success');
+        } else if (taskStatus === 'error') {
+            document.getElementById('flow-status').textContent = '分析出错';
+            addLog('分析出错: ' + (data.error_message || '未知错误'), 'error');
+            stopPolling();
+            resetUI();
+        } else if (taskStatus === 'stopped') {
+            document.getElementById('flow-status').textContent = '已停止';
+            addLog('分析已停止', 'warn');
+            stopPolling();
+            resetUI();
+        } else if (taskStatus === 'idle' && isAnalyzing) {
+            // 任务已结束（可能是被重置了）
+            stopPolling();
+            resetUI();
+        }
+    } catch(e) {
+        // 网络错误，不中断轮询（可能是临时的）
+        console.warn('状态轮询失败:', e.message);
+    }
+}
+
+async function pollLogs() {
+    try {
+        const resp = await fetch(`/api/logs?since_id=${lastLogId}`);
+        if (!resp.ok) return;
+        const data = await resp.json();
+        if (data.logs && data.logs.length > 0) {
+            data.logs.forEach(log => addLogFromServer(log));
+            lastLogId = data.last_id;
+        }
+    } catch(e) {
+        console.warn('日志轮询失败:', e.message);
+    }
+}
+
+async function fetchAllResults() {
+    try {
+        addLog('正在获取分析结果...', 'info');
+        const resp = await fetch('/api/all-results');
+        if (!resp.ok) {
+            addLog(`获取结果失败: HTTP ${resp.status}`, 'error');
+            return;
+        }
+        const data = await resp.json();
+        console.log('[fetchAllResults] 返回数据:', data);
+        if (data.results) {
+            const resultMap = { coordinator:'plan', analyzer:'analysis', reviewer:'review', synthesizer:'synthesis', advisor:'advice' };
+            let count = 0;
+            for (const [agent, text] of Object.entries(data.results)) {
+                if (text && resultMap[agent]) {
+                    results[resultMap[agent]] = text;
+                    count++;
+                    console.log(`[fetchAllResults] ${agent} → ${resultMap[agent]}, ${text.length}字`);
+                }
+            }
+            addLog(`已获取 ${count} 个 Agent 的分析结果`, 'success');
+            renderTab(currentTab);
+        } else {
+            addLog('后端返回数据中没有 results 字段', 'warn');
+        }
+    } catch(e) {
+        addLog(`获取结果异常: ${e.message}`, 'error');
+        console.error('[fetchAllResults] 异常:', e);
+    }
+}
+
+function resetUI() {
+    isAnalyzing = false;
+    const startBtn = document.getElementById('start-btn');
+    const stopBtn = document.getElementById('stop-btn');
+    const testBtn = document.getElementById('test-btn');
+    startBtn.classList.remove('hidden');
+    stopBtn.classList.add('hidden');
+    if (testBtn) { testBtn.disabled = false; testBtn.innerHTML = '<i class="fa fa-bolt"></i>快速测试'; }
+}
+</script>
+</body>
+</html>
