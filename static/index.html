@@ -614,8 +614,10 @@ function renderTab(tab) {
     if (!ph || !md) { console.error('[renderTab] 找不到 DOM 元素'); return; }
     if (tab === 'full') {
         const labels = {plan:'🎯 分析计划',analysis:'🔍 内容分析',review:'📝 评审报告',synthesis:'🔗 综合报告',advice:'💡 研究建议'};
+        // 去除结果中已有的顶层标题（避免与外层标签重复）
+        const stripH12 = s => s.replace(/^\s*#{1,2}\s+[^\n]+\n*/,'').trim();
         let has=false, c='# 📊 多Agent协作分析报告\n\n';
-        for (const [k,l] of Object.entries(labels)) { if(results[k]) { has=true; c+=`---\n\n## ${l}\n\n${results[k]}\n\n`; } }
+        for (const [k,l] of Object.entries(labels)) { if(results[k]) { has=true; c+=`---\n\n## ${l}\n\n${stripH12(results[k])}\n\n`; } }
         console.log(`[renderTab] full: has=${has}`);
         if (has) { ph.style.display='none'; md.style.display='block'; md.innerHTML=safeParse(c); hlCode(md); }
         else { ph.style.display=''; md.style.display='none'; }
@@ -850,26 +852,49 @@ async function pollStatus() {
 
         // 更新每个 Agent 的状态
         const states = data.agent_states || {};
-        let currentAgent = null;
+        let workingCount = 0, doneCount = 0;
+        document.getElementById('progress-bar').classList.remove('hidden');
         STEPS.forEach(agent => {
             const st = states[agent] || 'idle';
             setAgentStatus(agent, st);
-            if (st === 'working') currentAgent = agent;
+            if (st === 'working') workingCount++;
+            if (st === 'done' || st === 'error') doneCount++;
+            // 逐个 Agent 独立更新进度条分段
+            const el = document.querySelector(`#prog-${agent} > div`);
+            if (!el) return;
+            if (st === 'done' || st === 'error') {
+                el.className='h-full w-full transition-all duration-500 rounded-full';
+                el.style.backgroundColor=AGENT_COLORS[agent];
+            } else if (st === 'working') {
+                el.className='h-full w-1/2 progress-pulse transition-all duration-500 rounded-full';
+                el.style.backgroundColor=AGENT_COLORS[agent];
+            } else {
+                el.className='h-full w-0 transition-all duration-500 rounded-full';
+                el.style.backgroundColor='';
+            }
+            // 流程图连线
+            if (st === 'done' || st === 'error') activateLink(agent);
         });
-
-        // 更新进度条和流程图连线
-        if (currentAgent) {
-            setProgress(currentAgent);
-            // 激活当前 agent 之前的连线
-            const idx = STEPS.indexOf(currentAgent);
-            for (let i = 1; i <= idx; i++) activateLink(STEPS[i]);
+        // 更新进度文字
+        if (doneCount === STEPS.length) {
+            document.getElementById('progress-text').textContent = '全部完成';
+        } else if (workingCount > 0) {
+            document.getElementById('progress-text').textContent = `${doneCount}/${STEPS.length} 已完成，${workingCount} 个工作中`;
         }
 
         // 更新流程状态
         const taskStatus = data.task_status;
         if (taskStatus === 'running') {
             const elapsed = data.elapsed || 0;
-            const who = currentAgent ? AGENT_NAMES[currentAgent] + ' 工作中' : '分析中';
+            const workingAgents = STEPS.filter(a => (states[a]||'') === 'working');
+            let who;
+            if (workingAgents.length > 1) {
+                who = `${workingAgents.length} 个 Agent 并行工作中`;
+            } else if (workingAgents.length === 1) {
+                who = AGENT_NAMES[workingAgents[0]] + ' 工作中';
+            } else {
+                who = '分析中';
+            }
             document.getElementById('flow-status').textContent = `${who} (${elapsed}s)`;
         } else if (taskStatus === 'done') {
             finishProgress();

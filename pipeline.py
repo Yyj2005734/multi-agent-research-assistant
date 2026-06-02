@@ -4,12 +4,16 @@ Agent 协作管线（Pipeline）
 管理 5 个 Agent 的协作流程：
   Coordinator → Analyzer → Reviewer → Synthesizer → Advisor
 
-每个 Agent 接收前序 Agent 的输出作为上下文，形成协作链。
+支持两种执行模式：
+  - 串行模式（run）：逐个 Agent 执行，前序结果作为上下文
+  - 并行模式（run_parallel）：5 个 Agent 同时并发调用 LLM，大幅缩短耗时
+
 支持流式回调（用于实时展示每个 Agent 的输出）。
 """
 
 import time
 from typing import Callable, Optional
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from utils.api_client import LLMClient
 from agents import Coordinator, Analyzer, Reviewer, Synthesizer, Advisor
@@ -47,7 +51,7 @@ class Pipeline:
         on_step: Optional[Callable[[str, str, str], None]] = None,
     ) -> dict:
         """
-        执行完整的 Agent 协作流程
+        执行完整的 Agent 协作流程（串行模式）
 
         Args:
             user_input: 用户的自然语言输入
@@ -117,6 +121,82 @@ class Pipeline:
 
         print(f"\n{'=' * 50}")
         print(f"  分析完成！总耗时: {total_time:.1f}s")
+        print(f"{'=' * 50}")
+
+        return {
+            "plan": results.get("coordinator", ""),
+            "analysis": results.get("analyzer", ""),
+            "review": results.get("reviewer", ""),
+            "synthesis": results.get("synthesizer", ""),
+            "advice": results.get("advisor", ""),
+            "elapsed": round(total_time, 2),
+            "steps": step_times,
+        }
+
+    def run_parallel(
+        self,
+        user_input: str,
+        on_step: Optional[Callable[[str, str, str], None]] = None,
+    ) -> dict:
+        """
+        并行执行：5 个 Agent 同时并发调用 LLM
+
+        所有 Agent 同时启动，独立分析同一份输入内容，
+        无需等待前序结果，大幅缩短整体耗时。
+
+        Args:
+            user_input: 用户的自然语言输入
+            on_step: 步骤回调函数
+
+        Returns:
+            dict: 同 run() 的返回格式
+        """
+        start_time = time.time()
+        results = {}
+        step_times = {}
+
+        print("=" * 50)
+        print("  多 Agent 并行分析开始")
+        print("=" * 50)
+
+        # 通知回调：所有 Agent 同时开始
+        for step_name in self.STEPS:
+            if on_step:
+                on_step(step_name, "start", "")
+
+        def _run_agent(step_name: str):
+            """单个 Agent 执行（线程内）"""
+            agent = self.agents[step_name]
+            agent_start = time.time()
+            try:
+                # 并行模式下无前序上下文，每个 Agent 独立分析
+                result = agent.run(user_input, "")
+                elapsed = round(time.time() - agent_start, 2)
+                print(f"  [TIME] {agent.name} 耗时: {elapsed}s")
+                return step_name, result, elapsed, None
+            except Exception as e:
+                elapsed = round(time.time() - agent_start, 2)
+                print(f"  ❌ {agent.name} 执行失败: {e}")
+                return step_name, f"执行失败: {e}", elapsed, str(e)
+
+        # 使用线程池并发执行所有 Agent
+        with ThreadPoolExecutor(max_workers=5) as executor:
+            futures = {executor.submit(_run_agent, name): name for name in self.STEPS}
+            for future in as_completed(futures):
+                step_name, result, elapsed, error = future.result()
+                results[step_name] = result
+                step_times[step_name] = elapsed
+                if error:
+                    if on_step:
+                        on_step(step_name, "error", error)
+                else:
+                    if on_step:
+                        on_step(step_name, "done", result)
+
+        total_time = time.time() - start_time
+
+        print(f"\n{'=' * 50}")
+        print(f"  并行分析完成！总耗时: {total_time:.1f}s")
         print(f"{'=' * 50}")
 
         return {

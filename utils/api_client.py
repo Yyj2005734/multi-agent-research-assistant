@@ -59,7 +59,7 @@ class LLMClient:
         system_prompt: str,
         user_message: str,
         temperature: float = 0.7,
-        max_tokens: int = 4096,
+        max_tokens: int = 2048,
     ) -> str:
         """
         普通调用：发送消息并返回完整响应
@@ -137,7 +137,7 @@ class LLMClient:
         system_prompt: str,
         user_message: str,
         temperature: float = 0.7,
-        max_tokens: int = 4096,
+        max_tokens: int = 2048,
     ):
         """
         流式调用：逐块 yield 响应内容
